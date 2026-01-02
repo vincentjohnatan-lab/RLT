@@ -3,6 +3,10 @@ import SwiftUI
 
 struct HomeView: View {
     let onLiveTap: () -> Void
+    @EnvironmentObject var session: SessionManager
+    @State private var isAccountSheetPresented = false
+    @State private var isLogoutAlertPresented = false
+
     var body: some View {
         NavigationStack {
             GeometryReader { geo in
@@ -33,7 +37,10 @@ struct HomeView: View {
                     // Boutons – ligne 2 (2)
                     HStack(spacing: 16) {
                         homeButton(title: "Settings", systemImage: "gearshape.fill")
-                        homeButton(title: "Account", systemImage: "person.crop.circle")
+                        homeButton(title: "Account", systemImage: "person.crop.circle") {
+                            isAccountSheetPresented = true
+                        }
+                        
                     }
 
                     Spacer(minLength: 20)
@@ -42,7 +49,24 @@ struct HomeView: View {
             }
             .navigationBarHidden(true)
         }
-        .onAppear {
+            .sheet(isPresented: $isAccountSheetPresented) {
+                AccountView(
+                    onLogoutTap: { isLogoutAlertPresented = true }
+                )
+                .environmentObject(session)
+            }
+
+            .alert("Se déconnecter ?", isPresented: $isLogoutAlertPresented) {
+                Button("Annuler", role: .cancel) { }
+                Button("Logout", role: .destructive) {
+                    session.logOut()
+                    isAccountSheetPresented = false
+                }
+            } message: {
+                Text("Tu vas être renvoyé vers l’écran de connexion.")
+            }
+
+            .onAppear {
             OrientationLock.current = .portrait
         }
 
@@ -76,9 +100,29 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
     }
+    
+    private struct AccountView: View {
+        let onLogoutTap: () -> Void
+
+        var body: some View {
+            NavigationStack {
+                List {
+                    Section {
+                        Button(role: .destructive) {
+                            onLogoutTap()
+                        } label: {
+                            Text("Logout")
+                        }
+                    }
+                }
+                .navigationTitle("Account")
+            }
+        }
+    }
 }
 
 #Preview(traits: .portrait) {
     HomeView(onLiveTap: {})
+        .environmentObject(SessionManager())
 }
 

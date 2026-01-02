@@ -10,6 +10,14 @@ import Combine
 import SwiftUI
 
 final class SessionManager: ObservableObject {
+    
+    // MARK: - Auth (persisted)
+    @AppStorage("isLoggedIn") private var storedIsLoggedIn: Bool = false
+    @Published var isLoggedIn: Bool = false
+    
+    init() {
+        self.isLoggedIn = storedIsLoggedIn
+    }
 
     // MARK: - Session state
     @Published var isSessionRunning: Bool = false
@@ -159,5 +167,23 @@ final class SessionManager: ObservableObject {
     // Optionnel: helper de test (à supprimer plus tard si tu veux)
     func setAllSectors(_ state: SectorDeltaState) {
         sectorStates = Array(repeating: state, count: max(1, min(sectorCount, 6)))
+    }
+    
+    // MARK: - Auth actions (demo)
+    @discardableResult
+    func logIn(email: String, password: String) -> Bool {
+        // Mode démo : accepte si non vide
+        let ok = !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              && !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard ok else { return false }
+
+        storedIsLoggedIn = true
+        isLoggedIn = true
+        return true
+    }
+
+    func logOut() {
+        storedIsLoggedIn = false
+        isLoggedIn = false
     }
 }

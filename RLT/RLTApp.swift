@@ -5,11 +5,12 @@ import UIKit
 @main
 struct RLTApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var session = SessionManager()
 
     var body: some Scene {
         WindowGroup {
             RootShellView()
-                .environmentObject(SessionManager())
+                .environmentObject(session)
         }
     }
 }
@@ -44,40 +45,46 @@ enum AppRoute: String, CaseIterable, Identifiable {
 // MARK: - Root Shell (full screen + menu)
 
 struct RootShellView: View {
+    @EnvironmentObject var session: SessionManager
     @State private var route: AppRoute = .home
     @State private var isMenuPresented: Bool = false
 
     var body: some View {
         Group {
-            switch route {
-            case .home:
-                HomeView(onLiveTap: { route = .live })
+            if session.isLoggedIn {
+                Group {
+                    switch route {
+                    case .home:
+                        HomeView(onLiveTap: { route = .live })
 
-            case .live:
-                LiveView(
-                    onHomeTap: { route = .home },
-                    onWeatherTap: { route = .weather },
-                    onSettingsTap: { route = .settings }
-                )
+                    case .live:
+                        LiveView(
+                            onHomeTap: { route = .home },
+                            onWeatherTap: { route = .weather },
+                            onSettingsTap: { route = .settings }
+                        )
 
-            case .weather:
-                WeatherView()
+                    case .weather:
+                        WeatherView()
 
+                    case .stats:
+                        StatsView()
 
-            case .stats:
-                StatsView()
+                    case .spotter:
+                        SpotterView()
 
-            case .spotter:
-                SpotterView()
-
-            case .settings:
-                SettingsView(onClose: {
-                    route = .live
-                })
+                    case .settings:
+                        SettingsView(onClose: {
+                            route = .live
+                        })
+                    }
+                }
+                .sheet(isPresented: $isMenuPresented) {
+                    MenuSheetView(route: $route, isPresented: $isMenuPresented)
+                }
+            } else {
+                LoginView()
             }
-        }
-        .sheet(isPresented: $isMenuPresented) {
-            MenuSheetView(route: $route, isPresented: $isMenuPresented)
         }
     }
 }
