@@ -5,42 +5,22 @@ import SwiftUI
 struct SettingsView: View {
     let onClose: () -> Void
     @EnvironmentObject var sessionManager: SessionManager
-
-    @State private var minimumPitText: String = ""
-    @State private var newDriverName: String = ""
-
+    @AppStorage("appearance_preference") private var appearanceRawValue = AppearancePreference.system.rawValue
     var body: some View {
         NavigationStack {
             Form {
-                Section("Session") {
-                    HStack {
-                        Text("Minimum Pit time (s)")
-                        Spacer()
-                        TextField("10", text: $minimumPitText)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 90)
-                    }
-                }
-                Section("Drivers (session)") {
-                    ForEach(sessionManager.drivers.indices, id: \.self) { index in
-                        TextField("Driver's name", text: Binding(
-                            get: { sessionManager.drivers[index] },
-                            set: { sessionManager.drivers[index] = $0 }
-                        ))
-                    }
-                    .onDelete(perform: sessionManager.removeDrivers)
-
-                    HStack {
-                        TextField("Add a driver", text: $newDriverName)
-                        Button("Add") {
-                            sessionManager.addDriver(newDriverName)
-                            newDriverName = ""
+                Section("Appearance") {
+                    Picker("Theme", selection: $appearanceRawValue) {
+                        ForEach([AppearancePreference.system, .light, .dark], id: \.rawValue) { pref in
+                            Text(pref.title).tag(pref.rawValue)
                         }
-                        .disabled(newDriverName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
 
+                Section("Settings (Home)") {
+                    Text("Cette page sera utilisée plus tard pour les réglages généraux (Home).")
+                        .foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -51,16 +31,6 @@ struct SettingsView: View {
                         Label("Retour", systemImage: "chevron.left")
                     }
                 }
-            }
-            .onAppear {
-                minimumPitText = String(Int(sessionManager.minimumPitSeconds))
-            }
-            .onChange(of: minimumPitText) {
-                let filtered = minimumPitText.filter { $0.isNumber }
-                if filtered != minimumPitText {
-                    minimumPitText = filtered
-                }
-                sessionManager.minimumPitSeconds = TimeInterval(Int(filtered) ?? 0)
             }
         }
     }

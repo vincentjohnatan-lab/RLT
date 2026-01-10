@@ -2,15 +2,42 @@ import SwiftUI
 import Combine
 import UIKit
 
+enum AppearancePreference: String {
+    case system, light, dark
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
+
 @main
 struct RLTApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var session = SessionManager()
+    @AppStorage("appearance_preference") private var appearanceRawValue = AppearancePreference.system.rawValue
+    @StateObject private var raceBoxGPS = RaceBoxGPSManager()
 
     var body: some Scene {
         WindowGroup {
             RootShellView()
                 .environmentObject(session)
+                .environmentObject(raceBoxGPS)
+                .preferredColorScheme(
+                    AppearancePreference(rawValue: appearanceRawValue)?.colorScheme
+                )
         }
     }
 }
@@ -61,7 +88,7 @@ struct RootShellView: View {
                         LiveView(
                             onHomeTap: { route = .home },
                             onWeatherTap: { route = .weather },
-                            onSettingsTap: { route = .settings }
+                            onSettingsTap: { }
                         )
 
                     case .weather:
@@ -247,6 +274,15 @@ struct DeltaBar: View {
 struct DeltaCenterTile: View {
     let deltaSeconds: TimeInterval
     var rangeSeconds: TimeInterval = 2.0
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var tileBackground: Color {
+        colorScheme == .dark ? .black : .white
+    }
+
+    private var borderColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -268,9 +304,9 @@ struct DeltaCenterTile: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(white: 0.99))                 // fond "bland"
+        .background(tileBackground)
         .overlay(
-            Rectangle().stroke(.black, lineWidth: 4)
+            Rectangle().stroke(borderColor, lineWidth: 4)
         )
         .padding(.horizontal, 2)
 
@@ -284,6 +320,11 @@ struct TelemetryTile: View {
     let title: String
     let value: String
     var valueFont: Font = .title2
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var tileBackground: Color {
+        colorScheme == .dark ? .black : .white
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -301,7 +342,7 @@ struct TelemetryTile: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.white)
+        .background(tileBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }

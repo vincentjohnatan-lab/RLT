@@ -9,6 +9,7 @@ struct LiveView: View {
 
     @EnvironmentObject var sessionManager: SessionManager
     @State private var isDriverSheetPresented: Bool = false
+    @State private var isRaceSetupPresented: Bool = false
     @State private var controlsBarHeight: CGFloat = 0
 
 #if DEBUG
@@ -17,6 +18,12 @@ struct LiveView: View {
 #endif
 
     @State private var activeLapFlash: SessionManager.LapFlash? = nil
+    
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var tileBackground: Color {
+        colorScheme == .dark ? .black : .white
+    }
 
         private func formatLapTime(_ seconds: TimeInterval) -> String {
             let totalMs = max(0, Int((seconds * 1000.0).rounded()))
@@ -101,11 +108,16 @@ struct LiveView: View {
                                         Text("STINT")
                                             .frame(width: 44, alignment: .leading)
 
+                                        Text("#\(max(1, sessionManager.currentStintNumber))")
+                                            .frame(width: 28, alignment: .leading)
+                                        
                                         Text(":")
                                             .frame(width: 6)
 
-                                        Text("0:22")
-                                            .padding(.leading, 5)
+                                        TimelineView(.periodic(from: .now, by: 1.0)) { _ in
+                                            Text(formatStintTime(sessionManager.currentStintElapsed))
+                                                .padding(.leading, 5)
+                                        }
                                     }
                                     .font(.system(size: 16, weight: .semibold, design: .monospaced))
                                     .lineLimit(1)
@@ -118,7 +130,7 @@ struct LiveView: View {
                                         Text(":")
                                             .frame(width: 6)
 
-                                        Text("32")
+                                        Text("\(sessionManager.lapCount)")
                                             .padding(.leading, 5)
                                             .frame(width: 44, alignment: .leading)
 
@@ -149,7 +161,7 @@ struct LiveView: View {
                                 }
                                 .padding(12)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(.white)
+                                .background(Color(tileBackground))
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                                 .frame(height: bigRowHeight)
 
@@ -235,7 +247,7 @@ struct LiveView: View {
                                 }
                                 .padding(10)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                                .background(Color.white)
+                                .background(Color(tileBackground))
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                                 .frame(height: smallRowHeight)
 
@@ -329,7 +341,7 @@ struct LiveView: View {
                                 }
                                 .padding(12)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                                .background(.white)
+                                .background(Color(tileBackground))
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                                 .frame(height: bigRowHeight)
 
@@ -362,24 +374,12 @@ struct LiveView: View {
                             .frame(width: sideW, height: contentHeight)
                         }
                     }
-
-                    .onReceive(timer) { _ in
-                        guard sessionManager.isInPit, let start = sessionManager.pitStartDate else { return }
-
-                        let elapsed = Date().timeIntervalSince(start)
-                        sessionManager.pitElapsedSeconds = elapsed
-
-                        // Auto-stop PIT when minimum time is reached
-                        if elapsed >= sessionManager.minimumPitSeconds {
-                            sessionManager.togglePit() // stops pit + resets to 0 (current behavior)
-                        }
-                    }
                     
                     // Full-screen Lap Flash (2s)
                     if let flash = activeLapFlash {
                         ZStack {
                             // Optionnel: léger voile pour la lisibilité
-                            Color.white.ignoresSafeArea()
+                            Color(.systemBackground).ignoresSafeArea()
 
                             Text(formatLapTime(flash.lapTime))
                                 .font(.system(size: 120, weight: .heavy, design: .monospaced))
@@ -390,6 +390,31 @@ struct LiveView: View {
                         }
                         .transition(.opacity)
                         .zIndex(10)
+                    }
+                    
+                    // Full-screen START gate (tap to start)
+                    if sessionManager.isRaceStartArmed {
+                        ZStack {
+                            Color.white.ignoresSafeArea()
+
+                            VStack(spacing: 16) {
+                                Text("START")
+                                    .font(.system(size: 120, weight: .heavy, design: .monospaced))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.2)
+                                    .foregroundStyle(.black)
+
+                                Text("Tap anywhere to start")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(24)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            sessionManager.startArmedRace()
+                        }
+                        .zIndex(20)
                     }
 
                     // Controls bar (4 buttons - evenly distributed)
@@ -405,8 +430,7 @@ struct LiveView: View {
                         .accessibilityLabel("Home")
 
                         Button {
-                         // ACTION A MODIFIER. JUSTE POUR LE TEST.
-                            sessionManager.completeLap(lapTime: Double.random(in: 88...95))
+                            isRaceSetupPresented = true
                         } label: {
                             Image(systemName: "flag.checkered")
                                 .font(.title3)
@@ -471,6 +495,21 @@ struct LiveView: View {
         simTimer = nil
     }
     #endif
+            .sheet(isPresented: $isRaceSetupPresented) {
+                RaceSetupView(
+                    initialMinimumPitSeconds: sessionManager.minimumPitSeconds,
+                    initialDrivers: sessionManager.drivers
+                ) { config in
+                    sessionManager.armRaceStart(with: config)
+                    isRaceSetupPresented = false
+                }
+                // Plein écran (ou quasi) -> le Form peut scroller même en paysage
+                .presentationDetents([.fraction(0.98), .large])
+                .presentationDragIndicator(.visible)
+
+                // Important : évite que le drag de la sheet “vole” le geste de scroll
+                .presentationContentInteraction(.scrolls)
+            }
             .sheet(isPresented: $isDriverSheetPresented) {
                 DriverPickerSheet(
                     drivers: sessionManager.drivers,
@@ -483,6 +522,10 @@ struct LiveView: View {
             }
             .onAppear {
                 OrientationLock.current = .landscape
+                UIApplication.shared.isIdleTimerDisabled = true
+            }
+            .onDisappear {
+                UIApplication.shared.isIdleTimerDisabled = false
             }
             .onChange(of: sessionManager.lapFlash?.id) { _, _ in
                 guard let flash = sessionManager.lapFlash else { return }
@@ -508,6 +551,14 @@ struct LiveView: View {
             return String(format: "%02d:%02d", minutes, secs)
         }
     }
+
+        func formatStintTime(_ seconds: TimeInterval) -> String {
+            let totalMinutes = max(0, Int(seconds) / 60)
+            let hours = totalMinutes / 60
+            let minutes = totalMinutes % 60
+
+            return String(format: "%d:%02d", hours, minutes)
+        }
 
     private struct SignalBarsIcon: View {
         let filledBars: Int   // 0...3

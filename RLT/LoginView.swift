@@ -8,6 +8,7 @@ struct LoginView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var errorMessage: String?
+    @State private var isSignUpPresented = false
 
     var body: some View {
         GeometryReader { geo in
@@ -23,13 +24,13 @@ struct LoginView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(
-                            maxWidth: geo.size.width * 0.75,
-                            maxHeight: geo.size.height * 0.22
+                            maxWidth: geo.size.width * 1,
+                            maxHeight: geo.size.height * 1
                         )
                         .padding(.bottom, 8)
 
                     // Titre
-                    Text("Connexion")
+                    Text("LogIn")
                         .font(.title2)
                         .fontWeight(.semibold)
                         .foregroundStyle(.white)
@@ -46,12 +47,16 @@ struct LoginView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .foregroundStyle(.black)
 
-                        SecureField("Mot de passe", text: $password)
+                        SecureField("Password", text: $password)
                             .padding(.horizontal, 14)
                             .frame(height: 48)
                             .background(Color.white)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .foregroundStyle(.black)
+                    }
+                    .sheet(isPresented: $isSignUpPresented) {
+                        SignUpView()
+                            .environmentObject(session)
                     }
                     .frame(maxWidth: min(420, geo.size.width * 0.86))
 
@@ -64,10 +69,13 @@ struct LoginView: View {
                     }
 
                     // Bouton "Se connecter" dans un rond blanc (rappel HomeView)
-                    Button {
-                        let ok = session.logIn(email: email, password: password)
-                        if !ok {
-                            errorMessage = "Identifiants invalides (mode démo)."
+                        Button {
+                            errorMessage = nil
+                            switch session.logIn(email: email, password: password) {
+                            case .success:
+                                break
+                            case .failure(let err):
+                                errorMessage = err.localizedDescription
                         }
                     } label: {
                         VStack(spacing: 10) {
@@ -81,13 +89,24 @@ struct LoginView: View {
                                     .foregroundStyle(.black)
                             }
 
-                            Text("Se connecter")
+                            Text("get connected")
                                 .font(.headline)
                                 .foregroundStyle(.white)
                         }
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 6)
+                    
+                    Button {
+                        isSignUpPresented = true
+                    } label: {
+                        Text("Create an account")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .underline()
+                            .padding(.top, 10)
+                    }
+                    .buttonStyle(.plain)
 
                     Spacer(minLength: 0)
                 }
