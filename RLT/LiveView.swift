@@ -599,7 +599,7 @@ struct LiveView: View {
                     lat: lat,
                     lon: lon,
                     speedKmh: speed,
-                    timestamp: lastUpdate ?? Date()
+                    timestamp: Date()
                 )
             }
 
