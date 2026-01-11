@@ -32,17 +32,35 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
     // NEW: GPS position
     @Published private(set) var latitude: Double? = nil
     @Published private(set) var longitude: Double? = nil
+    
+    // NEW: Altitude + position
+    @Published private(set) var headingDeg: Double? = nil
+    @Published private(set) var altitudeM: Double? = nil
+    
+    // NEW: Battery (0..100)
+    @Published private(set) var batteryPercent: Int? = nil
+    
+    // NEW: Battery (RaceBox Data Message)
+    @Published private(set) var isCharging: Bool? = nil
+
+
 
     // MARK: - BLE identifiers (NUS)
     private let nusServiceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     private let nusRxUUID      = CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
     private let nusTxUUID      = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+    
+    // MARK: - BLE identifiers (Battery Service)
+    private let batteryServiceUUID = CBUUID(string: "180F")
+    private let batteryLevelUUID   = CBUUID(string: "2A19")
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
 
     private var nusTx: CBCharacteristic?
     private var nusRx: CBCharacteristic?
+    private var batteryLevelChar: CBCharacteristic?
+
 
     // MARK: - Packet FIFO
     private var rxBuffer = Data()
@@ -106,6 +124,9 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
         lastUpdate = nil
         latitude = nil
         longitude = nil
+        batteryPercent = nil
+        isCharging = nil
+
     }
 
     // MARK: - Incoming bytes -> packets -> decode
@@ -222,6 +243,38 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
 
         // PDOP factor 100
         let pdopRaw = Double(u16lep(64))
+        
+        // Battery status (payload offset 67)
+        // Mini / Mini S: MSB=charging, lower 7 bits = battery %
+        // Micro: field = input voltage * 10 (on ne gère pas ici)
+        let batt = u8p(67)
+        let charging = (batt & 0x80) != 0
+        let percent = Int(batt & 0x7F)
+
+        if (0...100).contains(percent) {
+            batteryPercent = percent
+            isCharging = charging
+        } else {
+            batteryPercent = nil
+            isCharging = nil
+        }
+        
+        // Heading (deg * 1e5) — offset payload 52 (souvent) : i32
+        let headingRaw = Double(i32lep(52))
+        let heading = headingRaw / 100_000.0
+
+        // Altitude (mm) — offset payload 32 (souvent) : i32
+        let altRawMm = Double(i32lep(32))
+        let altitude = altRawMm / 1000.0
+
+        // Publish (avec garde-fous)
+        if heading.isFinite, heading >= -360, heading <= 720 {
+            headingDeg = (heading.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+        }
+
+        if altitude.isFinite, altitude > -1000, altitude < 10000 {
+            altitudeM = altitude
+        }
 
         // Publish fields
         fixQuality = fixStatus
@@ -313,6 +366,7 @@ extension RaceBoxGPSManager: CBCentralManagerDelegate {
         nusTx = nil
         nusRx = nil
         self.peripheral = nil
+        batteryLevelChar = nil
         state = .failed(error?.localizedDescription ?? "Déconnecté")
         debugPrint("🔌 Disconnected:", error?.localizedDescription ?? "no error")
     }
@@ -333,6 +387,11 @@ extension RaceBoxGPSManager: CBPeripheralDelegate {
         for s in services {
             debugPrint(" - \(s.uuid.uuidString)")
         }
+        
+        // NEW: Battery service (optionnel)
+        if let batt = services.first(where: { $0.uuid == batteryServiceUUID }) {
+            peripheral.discoverCharacteristics([batteryLevelUUID], for: batt)
+        }
 
         guard let nus = services.first(where: { $0.uuid == nusServiceUUID }) else {
             state = .failed("Service NUS introuvable")
@@ -352,20 +411,40 @@ extension RaceBoxGPSManager: CBPeripheralDelegate {
             return
         }
 
-        guard service.uuid == nusServiceUUID else { return }
         guard let chars = service.characteristics else { return }
 
-        if let tx = chars.first(where: { $0.uuid == nusTxUUID }) {
-            nusTx = tx
-            peripheral.setNotifyValue(true, for: tx)
-            debugPrint("✅ NUS TX notify demandé")
+        // NUS
+        if service.uuid == nusServiceUUID {
+            if let tx = chars.first(where: { $0.uuid == nusTxUUID }) {
+                nusTx = tx
+                peripheral.setNotifyValue(true, for: tx)
+                debugPrint("✅ NUS TX notify demandé")
+            }
+
+            if let rx = chars.first(where: { $0.uuid == nusRxUUID }) {
+                nusRx = rx
+                debugPrint("✅ NUS RX disponible")
+            }
+
+            return
         }
 
-        if let rx = chars.first(where: { $0.uuid == nusRxUUID }) {
-            nusRx = rx
-            debugPrint("✅ NUS RX disponible")
+        // Battery
+        if service.uuid == batteryServiceUUID {
+            if let level = chars.first(where: { $0.uuid == batteryLevelUUID }) {
+                batteryLevelChar = level
+
+                // Si notify dispo, on l'active; sinon on read une fois
+                if level.properties.contains(.notify) {
+                    peripheral.setNotifyValue(true, for: level)
+                }
+                peripheral.readValue(for: level)
+                debugPrint("🔋 Battery level char ready")
+            }
+            return
         }
     }
+
 
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateNotificationStateFor characteristic: CBCharacteristic,
@@ -385,10 +464,19 @@ extension RaceBoxGPSManager: CBPeripheralDelegate {
             return
         }
 
-        guard characteristic.uuid == nusTxUUID,
-              let data = characteristic.value else { return }
+        // NUS telemetry
+        if characteristic.uuid == nusTxUUID, let data = characteristic.value {
+            handleIncoming(bytes: data)
+            return
+        }
 
-        // Notify-only: on ne fait pas de readValue(), uniquement notifications.
-        handleIncoming(bytes: data)
+        // Battery level (0..100)
+        if characteristic.uuid == batteryLevelUUID, let data = characteristic.value, let b = data.first {
+            let v = Int(b)
+            if (0...100).contains(v) {
+                batteryPercent = v
+            }
+            return
+        }
     }
 }

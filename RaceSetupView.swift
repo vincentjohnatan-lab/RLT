@@ -13,21 +13,20 @@ struct RaceSetupView: View {
     let onValidate: (SessionManager.RaceConfig) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var trackStore: TrackStore
 
-    @State private var trackName: String = "Unknown Track"
+
+    @State private var selectedTrackID: UUID? = nil
     @State private var minimumPitSeconds: Double = 10
 
     @State private var driverCount: Int = 2
     @State private var driverNames: [String] = ["Driver 1", "Driver 2"]
 
     // Liste simple (placeholder). On la branchera plus tard sur une vraie liste Track.
-    private let tracks: [String] = [
-        "Unknown Track",
-        "Le Mans",
-        "Karting (Generic)",
-        "Circuit 1",
-        "Circuit 2"
-    ]
+    private var availableTrackNames: [String] {
+        let names = trackStore.tracks.map { $0.name }
+        return names.isEmpty ? ["Unknown Track"] : names
+    }
 
     init(
         initialMinimumPitSeconds: TimeInterval,
@@ -51,15 +50,26 @@ struct RaceSetupView: View {
         _driverNames = State(initialValue: names)
     }
 
+    private var availableTracks: [TrackDefinition] {
+        trackStore.tracks.sorted { $0.createdAt > $1.createdAt }
+    }
+    
     var body: some View {
         NavigationStack {
             Form {
                 Section("Race") {
-                    Picker("Track", selection: $trackName) {
-                        ForEach(tracks, id: \.self) { t in
-                            Text(t).tag(t)
+                    Picker("Track", selection: $selectedTrackID) {
+                        ForEach(availableTracks) { track in
+                            Text(track.name).tag(Optional(track.id))
                         }
                     }
+                    .onAppear {
+                        // Init une fois pour éviter un Picker sans sélection
+                        if selectedTrackID == nil {
+                            selectedTrackID = availableTracks.first?.id
+                        }
+                    }
+
 
                     Stepper(value: $minimumPitSeconds, in: 0...600, step: 10) {
                         HStack {
@@ -104,16 +114,24 @@ struct RaceSetupView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Launch") {
                         let cleaned = driverNames
-                            .prefix(driverCount)
                             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                            .enumerated()
-                            .map { (i, name) in name.isEmpty ? "Driver \(i + 1)" : name }
+                            .filter { !$0.isEmpty }
 
+                        // 1) Récupère le TrackDefinition choisi
+                        guard
+                            let id = selectedTrackID,
+                            let track = availableTracks.first(where: { $0.id == id })
+                        else {
+                            return
+                        }
+
+                        // 2) Construit la config robuste (avec snapshot du track)
                         let config = SessionManager.RaceConfig(
-                            trackName: trackName,
+                            track: track,
                             minimumPitSeconds: minimumPitSeconds,
                             driverNames: cleaned
                         )
+
                         onValidate(config)
                         dismiss()
                     }
@@ -146,4 +164,5 @@ private extension Array {
 #Preview {
     RaceSetupView(initialMinimumPitSeconds: 10, initialDrivers: ["Driver 1", "Driver 2"]) { _ in }
         .environmentObject(SessionManager())
+        .environmentObject(TrackStore())
 }

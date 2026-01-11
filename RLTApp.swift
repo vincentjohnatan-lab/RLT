@@ -29,12 +29,14 @@ struct RLTApp: App {
     @StateObject private var session = SessionManager()
     @AppStorage("appearance_preference") private var appearanceRawValue = AppearancePreference.system.rawValue
     @StateObject private var raceBoxGPS = RaceBoxGPSManager()
+    @StateObject private var trackStore = TrackStore()
 
     var body: some Scene {
         WindowGroup {
             RootShellView()
                 .environmentObject(session)
                 .environmentObject(raceBoxGPS)
+                .environmentObject(trackStore)
                 .preferredColorScheme(
                     AppearancePreference(rawValue: appearanceRawValue)?.colorScheme
                 )
@@ -75,20 +77,21 @@ struct RootShellView: View {
     @EnvironmentObject var session: SessionManager
     @State private var route: AppRoute = .home
     @State private var isMenuPresented: Bool = false
-
+    @State private var isHomeRaceSetupPresented: Bool = false
+    
     var body: some View {
         Group {
             if session.isLoggedIn {
                 Group {
                     switch route {
                     case .home:
-                        HomeView(onLiveTap: { route = .live })
+                        HomeView(onLiveTap: { isHomeRaceSetupPresented = true })
 
                     case .live:
                         LiveView(
                             onHomeTap: { route = .home },
                             onWeatherTap: { route = .weather },
-                            onSettingsTap: { }
+                            onSettingsTap: { route = .settings }
                         )
 
                     case .weather:
@@ -105,6 +108,19 @@ struct RootShellView: View {
                             route = .live
                         })
                     }
+                }
+                .sheet(isPresented: $isHomeRaceSetupPresented) {
+                    RaceSetupView(
+                        initialMinimumPitSeconds: session.minimumPitSeconds,
+                        initialDrivers: session.drivers
+                    ) { config in
+                        session.armRaceStart(with: config)
+                        isHomeRaceSetupPresented = false
+                        route = .live
+                    }
+                    .presentationDetents([.fraction(0.98), .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationContentInteraction(.scrolls)
                 }
                 .sheet(isPresented: $isMenuPresented) {
                     MenuSheetView(route: $route, isPresented: $isMenuPresented)
@@ -272,8 +288,10 @@ struct DeltaBar: View {
 }
 
 struct DeltaCenterTile: View {
-    let deltaSeconds: TimeInterval
-    var rangeSeconds: TimeInterval = 2.0
+        let deltaSeconds: TimeInterval
+        var rangeSeconds: TimeInterval = 2.0
+        var currentLapSeconds: TimeInterval? = nil
+
     @Environment(\.colorScheme) private var colorScheme
 
     private var tileBackground: Color {
@@ -282,6 +300,15 @@ struct DeltaCenterTile: View {
 
     private var borderColor: Color {
         colorScheme == .dark ? .white : .black
+    }
+
+    private func formatLapTime(_ seconds: TimeInterval) -> String {
+        let totalMs = max(0, Int((seconds * 1000.0).rounded()))
+        let minutes = totalMs / 60000
+        let remMs = totalMs % 60000
+        let secs = remMs / 1000
+        let ms = remMs % 1000
+        return String(format: "%d:%02d.%03d", minutes, secs, ms)
     }
 
     var body: some View {
@@ -299,6 +326,13 @@ struct DeltaCenterTile: View {
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(deltaSeconds < 0 ? .green : (deltaSeconds > 0 ? .red : .primary))
 
+            if let t = currentLapSeconds {
+                Text(formatLapTime(t))
+                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
 
             Spacer(minLength: 0)
         }

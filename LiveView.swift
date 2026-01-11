@@ -8,13 +8,19 @@ struct LiveView: View {
     let onSettingsTap: () -> Void
 
     @EnvironmentObject var sessionManager: SessionManager
+    @EnvironmentObject var raceBoxGPS: RaceBoxGPSManager
     @State private var isDriverSheetPresented: Bool = false
     @State private var isRaceSetupPresented: Bool = false
+    @State private var isEndRaceAlertPresented: Bool = false
     @State private var controlsBarHeight: CGFloat = 0
+    @State private var isGPSSheetPresented: Bool = false
 
-#if DEBUG
+
+#if DEBUG && targetEnvironment(simulator)
+
     @State private var simTick: Int = 0
     @State private var simTimer: Timer?
+    
 #endif
 
     @State private var activeLapFlash: SessionManager.LapFlash? = nil
@@ -46,12 +52,8 @@ struct LiveView: View {
             case sunny, cloudy, rainy
         }
 
-        private enum GPSQuality {
-            case none, weak, good
-        }
 
         @State private var weatherState: WeatherState = .sunny
-        @State private var gpsQuality: GPSQuality = .good
 
         private var weatherSymbolName: String {
             switch weatherState {
@@ -60,16 +62,58 @@ struct LiveView: View {
             case .rainy:  return "cloud.rain.fill"
             }
         }
-
-        private var gpsFilledBars: Int {
-            switch gpsQuality {
-            case .none: return 0
-            case .weak: return 1
-            case .good: return 3
+    
+        private var lastLapDisplayText: String {
+            guard let t = sessionManager.lastLapTime, t.isFinite, t >= 0 else {
+                return "LAST  --:--.---"
             }
+            return "LAST  \(formatLapTime(t))"
         }
 
-        
+        private var bestLapDisplayText: String {
+            guard let t = sessionManager.bestLapTime, t.isFinite, t >= 0 else {
+                return "--:--.---"
+            }
+            return formatLapTime(t)
+        }
+
+        private var gpsFilledBars: Int {
+            // 1) Pas connecté / erreur / bluetooth off => 0 barre
+            switch raceBoxGPS.state {
+            case .connected:
+                break
+            default:
+                return 0
+            }
+
+            let fix = raceBoxGPS.fixQuality ?? 0
+            let sats = raceBoxGPS.satellites ?? 0
+            let dop = raceBoxGPS.hdop ?? 99 // hdop = PDOP/100 chez toi :contentReference[oaicite:3]{index=3}
+
+            // 2) Pas de fix exploitable => 1 barre (acquisition)
+            // Recommandation pratique : fix >= 3 + sats >= 6
+            if fix < 3 || sats < 6 {
+                return 1
+            }
+
+            
+            // 3) Fix OK mais qualité moyenne => 2 barres
+            // Seuils simples et robustes (à ajuster plus tard si besoin)
+            if dop > 2.5 || sats < 10 {
+                return 2
+            }
+
+            // 4) Bon GPS => 3 barres
+            return 3
+        }
+    
+        // Affichage de la vitesse du GPS
+        private var speedText: String {
+            guard case .connected = raceBoxGPS.state else { return "--" }
+            guard let v = raceBoxGPS.speedKmh, v.isFinite else { return "--" }
+            return String(format: "%.0f", max(0, v))
+        }
+
         // Timer léger (4 fois par seconde) pour un affichage fluide
         private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
         private let sectorRectWidth: CGFloat = 70
@@ -152,7 +196,7 @@ struct LiveView: View {
 
                                     Spacer(minLength: 0)
 
-                                    Text("78")
+                                    Text(speedText)
                                         .font(.system(size: 80, weight: .light, design: .monospaced))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.5)
@@ -196,7 +240,7 @@ struct LiveView: View {
                                 VStack(spacing: 10) {
                                     SectorIndicatorsRow(states: sessionManager.sectorStates)
 
-                                    Text("LAST  1.31.878")
+                                    Text(lastLapDisplayText)
                                         .font(.system(size: 19, weight: .bold, design: .monospaced))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.8)
@@ -206,7 +250,11 @@ struct LiveView: View {
 
                                 // Row 2 (Delta + overlay PIT si besoin)
                                 ZStack {
-                                    DeltaCenterTile(deltaSeconds: sessionManager.deltaToBestLap, rangeSeconds: 2.0)
+                                    DeltaCenterTile(
+                                        deltaSeconds: sessionManager.deltaToBestLap,
+                                        rangeSeconds: 2.0,
+                                        currentLapSeconds: sessionManager.currentLapTime
+                                    )
 
                                     if sessionManager.isInPit {
                                         VStack(spacing: 12) {
@@ -236,7 +284,7 @@ struct LiveView: View {
                                             .font(.system(size: 18, weight: .bold))
                                             .foregroundStyle(Color(red: 0.85, green: 0.65, blue: 0.13))
 
-                                        Text("1.30.345")
+                                        Text(bestLapDisplayText)
                                             .font(.system(size: 40, weight: .bold, design: .monospaced))
                                             .foregroundStyle(Color(red: 0.85, green: 0.65, blue: 0.13))
                                             .lineLimit(1)
@@ -430,32 +478,33 @@ struct LiveView: View {
                         .accessibilityLabel("Home")
 
                         Button {
-                            isRaceSetupPresented = true
+                            isEndRaceAlertPresented = true
                         } label: {
                             Image(systemName: "flag.checkered")
                                 .font(.title3)
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .accessibilityLabel("Race")
+                        .accessibilityLabel("End Race")
 
                         Button {
-                            onWeatherTap()
+                            onSettingsTap()
                         } label: {
                             Image(systemName: weatherSymbolName)
                                 .font(.title3)
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .accessibilityLabel("Weather")
+                        .accessibilityLabel("Settings")
 
                         Button {
-                            onSettingsTap()
+                            isGPSSheetPresented = true
                         } label: {
                             SignalBarsIcon(filledBars: gpsFilledBars)
                                 .frame(maxWidth: .infinity, minHeight: 44)
                                 .font(.title3)
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .accessibilityLabel("Settings")
+                        .accessibilityLabel("GPS")
+
                     }
 
                     .padding(.horizontal, 12)
@@ -474,7 +523,7 @@ struct LiveView: View {
 
                 }
             }
-    #if DEBUG
+#if DEBUG && targetEnvironment(simulator)
     .onAppear {
         // Évite de recréer un timer si la vue réapparaît
         if simTimer != nil { return }
@@ -520,6 +569,40 @@ struct LiveView: View {
                     }
                 )
             }
+            .alert("End race?", isPresented: $isEndRaceAlertPresented) {
+                Button("Cancel", role: .cancel) { }
+                Button("End Race", role: .destructive) {
+                    // Stop propre
+                    sessionManager.stopSession()
+
+                    // Reset data course
+                    sessionManager.isRaceStartArmed = false
+                    sessionManager.raceConfig = nil
+                    sessionManager.resetRaceData()
+
+                    // Retour Home
+                    onHomeTap()
+                }
+            } message: {
+                Text("This will stop the current session and reset race data.")
+            }
+
+            .sheet(isPresented: $isGPSSheetPresented) {
+                GPSView(onClose: { isGPSSheetPresented = false })
+            }
+            .onReceive(
+                raceBoxGPS.$latitude
+                    .combineLatest(raceBoxGPS.$longitude, raceBoxGPS.$speedKmh, raceBoxGPS.$lastUpdate)
+            ) { lat, lon, speed, lastUpdate in
+                guard let lat, let lon else { return }
+                sessionManager.ingestGPS(
+                    lat: lat,
+                    lon: lon,
+                    speedKmh: speed,
+                    timestamp: lastUpdate ?? Date()
+                )
+            }
+
             .onAppear {
                 OrientationLock.current = .landscape
                 UIApplication.shared.isIdleTimerDisabled = true

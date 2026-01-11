@@ -6,6 +6,7 @@ struct HomeView: View {
     @State private var isAccountSheetPresented = false
     @State private var isSettingsSheetPresented = false
     @State private var isGPSSheetPresented = false
+    @State private var isTracksSheetPresented = false
     
     var body: some View {
         NavigationStack {
@@ -28,8 +29,10 @@ struct HomeView: View {
                         Spacer(minLength: 0)
 
                         HStack(spacing: 16) {
-                            homeButton(title: "Live", systemImage: "bolt.fill", action: onLiveTap)
-                            homeButton(title: "Track", systemImage: "map.fill")
+                            homeButton(title: "Race", systemImage: "flag.checkered", action: onLiveTap)
+                            homeButton(title: "Track", systemImage: "map.fill") {
+                                isTracksSheetPresented = true
+                            }
                             homeButton(title: "GPS", systemImage: "location.fill") {
                                 isGPSSheetPresented = true
                             }
@@ -60,6 +63,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $isGPSSheetPresented) {
                 GPSView(onClose: { isGPSSheetPresented = false })
+            }
+            .sheet(isPresented: $isTracksSheetPresented) {
+                TracksView(onClose: { isTracksSheetPresented = false })
             }
             .onAppear {
                 OrientationLock.current = .portrait
@@ -126,7 +132,7 @@ struct HomeView: View {
     }
 }
 
-private struct GPSView: View {
+struct GPSView: View {
     let onClose: () -> Void
 
     @EnvironmentObject var raceBoxGPS: RaceBoxGPSManager
@@ -148,6 +154,15 @@ private struct GPSView: View {
                 Section("Status") {
                     Text(statusText)
                         .foregroundStyle(.secondary)
+                    if let b = raceBoxGPS.batteryPercent {
+                        if raceBoxGPS.isCharging == true {
+                            Text("Battery: \(b)% (charging)")
+                        } else {
+                            Text("Battery: \(b)%")
+                        }
+                    } else {
+                        Text("Battery: --")
+                    }
 
                     if let v = raceBoxGPS.speedKmh {
                         Text(String(format: "Speed: %.1f km/h", v))
@@ -160,6 +175,12 @@ private struct GPSView: View {
                     }
                     if let lat = raceBoxGPS.latitude, let lon = raceBoxGPS.longitude {
                         Text(String(format: "Lat/Lon: %.6f, %.6f", lat, lon))
+                    }
+                    if let h = raceBoxGPS.headingDeg {
+                        Text(String(format: "Heading: %.1f°", h))
+                    }
+                    if let a = raceBoxGPS.altitudeM {
+                        Text(String(format: "Alt: %.1f m", a))
                     }
                 }
             }
