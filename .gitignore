@@ -1,26 +1,14 @@
 # macOS
 .DS_Store
 
-# Xcode
+# Xcode / SwiftPM / build artifacts
 DerivedData/
-*.xcuserstate
-*.xccheckout
-*.xcscmblueprint
-
-# User-specific Xcode data
-**/xcuserdata/
-
-# Build products
-build/
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
-
-# Swift Package Manager
 .build/
-Packages/
-Package.resolved
+.swiftpm/
 
-# CocoaPods (si un jour tu l'utilises)
-Pods/
+# Xcode user-specific files
+**/xcuserdata/
+**/*.xcuserstate
+
+# Optional: logs
+*.log
