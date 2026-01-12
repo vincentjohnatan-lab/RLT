@@ -107,6 +107,14 @@ struct LiveView: View {
             return 3
         }
     
+        private var gpsBatteryText: String {
+            // Affiche un pourcentage uniquement quand on est connecté
+            guard case .connected = raceBoxGPS.state else { return "--" }
+            guard let p = raceBoxGPS.batteryPercent else { return "--" }
+            return "\(max(0, min(100, p)))%"
+        }
+
+    
         // Affichage de la vitesse du GPS
         private var speedText: String {
             guard case .connected = raceBoxGPS.state else { return "--" }
@@ -252,7 +260,7 @@ struct LiveView: View {
                                 ZStack {
                                     DeltaCenterTile(
                                         deltaSeconds: sessionManager.deltaToBestLap,
-                                        rangeSeconds: 2.0,
+                                        rangeSeconds: 4.0,
                                         currentLapSeconds: sessionManager.currentLapTime
                                     )
 
@@ -368,12 +376,11 @@ struct LiveView: View {
                                             .frame(maxWidth: .infinity, alignment: .center)
 
                                         VStack(spacing: 6) {
-                                            sectorLine(title: "S1", index: 0)
-                                            sectorLine(title: "S2", index: 1)
-                                            sectorLine(title: "S3", index: 2)
-                                            
-                                            optimalLapLine()
+                                            ForEach(Array(sessionManager.sectorStates.indices), id: \.self) { i in
+                                                sectorLine(title: "S\(i + 1)", index: i)
+                                            }
 
+                                            optimalLapLine()
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -485,8 +492,16 @@ struct LiveView: View {
                         .accessibilityLabel("Settings")
 
                         Button { isGPSSheetPresented = true } label: {
-                            SignalBarsIcon(filledBars: gpsFilledBars)
-                                .frame(maxWidth: .infinity, minHeight: 36)
+                            HStack(spacing: 6) {
+                                SignalBarsIcon(filledBars: gpsFilledBars)
+
+                                Text(gpsBatteryText)
+                                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .accessibilityLabel("GPS")
                     }
@@ -505,28 +520,6 @@ struct LiveView: View {
                         }
                     )
                 }
-
-#if DEBUG && targetEnvironment(simulator)
-    .onAppear {
-        // Évite de recréer un timer si la vue réapparaît
-        if simTimer != nil { return }
-
-        simTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            simTick += 1
-
-            // 1) Delta sinusoïdal (entre -1.5 et +1.5)
-            let t = Double(simTick) * 0.25
-            sessionManager.deltaToBestLap = 1.5 * sin(t)
-
-            // 2) Secteurs fixes : jaune / vert / violet
-            sessionManager.sectorStates = [.slower, .faster, .best]
-        }
-    }
-    .onDisappear {
-        simTimer?.invalidate()
-        simTimer = nil
-    }
-    #endif
             .sheet(isPresented: $isRaceSetupPresented) {
                 RaceSetupView(
                     initialMinimumPitSeconds: sessionManager.minimumPitSeconds,
@@ -650,7 +643,7 @@ private extension LiveView {
     @ViewBuilder
     func optimalLapLine() -> some View {
         HStack {
-            Text("OPTI")
+            Text("Opti")
                 .font(.system(size: 16, weight: .regular, design: .monospaced))
                 .frame(width: 44, alignment: .leading)
                 .foregroundStyle(.secondary)

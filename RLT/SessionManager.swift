@@ -80,6 +80,7 @@ final class SessionManager: ObservableObject {
     @Published var lastLapTime: TimeInterval?
     @Published var bestLapTime: TimeInterval?
     @Published var deltaToBestLap: TimeInterval = 0
+    @Published var isDeltaReady: Bool = false
     private var lapTicker: AnyCancellable?
     
     // MARK: - Sector live timing (UI)
@@ -267,8 +268,9 @@ final class SessionManager: ObservableObject {
 
         // Configure sectorCount from track
         let sectorLines = availableSectorLines(from: config.track)
-        sectorCount = max(1, sectorLines.count)
-
+        // secteurs = (nb de lignes secteurs) + 1 (le dernier secteur jusqu’à SF)
+        sectorCount = max(1, sectorLines.count + 1)
+        
         // Apply config
         minimumPitSeconds = config.minimumPitSeconds
         drivers = config.driverNames.isEmpty ? ["Driver 1"] : config.driverNames
@@ -311,13 +313,13 @@ final class SessionManager: ObservableObject {
             let t = max(0, timestamp.timeIntervalSince(start))
             currentLapSamples.append(LapSample(s: currentLapDistance, t: t))
 
-            if let refT = refTime(atDistance: currentLapDistance) {
+            // Delta : seulement quand une lap de référence existe vraiment
+            if isDeltaReady, let refT = refTime(atDistance: currentLapDistance) {
                 let raw = t - refT
-
-                // EMA: lissage pour stabiliser le delta (réduit le jitter GPS)
                 smoothedDeltaToBest = smoothedDeltaToBest + deltaEmaAlpha * (raw - smoothedDeltaToBest)
                 deltaToBestLap = smoothedDeltaToBest
             } else {
+                // Tant qu'on n'est pas "ready", on force un delta neutre (affichage stable)
                 smoothedDeltaToBest = 0
                 deltaToBestLap = 0
             }
@@ -357,18 +359,42 @@ final class SessionManager: ObservableObject {
         }
         currentLapSectorTimesUI = currentLapSectorTimes
 
+        let sectorsCount = max(1, sectorLines.count + 1)
+
+        // Debounce uniquement sur les lignes secteurs (sans SF)
         if lastSectorCrossDates.count != sectorLines.count {
             lastSectorCrossDates = Array(repeating: nil, count: sectorLines.count)
         }
-        if bestSectorTimes.count != sectorLines.count {
-            bestSectorTimes = Array(repeating: .infinity, count: sectorLines.count)
+
+        // Best/States sur le nombre de secteurs (incluant le dernier jusqu’à SF)
+        if bestSectorTimes.count != sectorsCount {
+            bestSectorTimes = Array(repeating: .infinity, count: sectorsCount)
+        }
+        if sectorStates.count != max(1, min(sectorsCount, 6)) {
+            sectorStates = Array(repeating: .neutral, count: max(1, min(sectorsCount, 6)))
         }
 
+        // Si on est déjà dans le dernier secteur (après la dernière ligne), il n’y a plus de ligne à croiser.
+        // Le dernier secteur sera validé au passage SF (registerLapCrossing).
         guard currentSectorIndex < sectorLines.count else { return }
+
         guard let seg = trackLine(sectorLines[currentSectorIndex]) else { return }
 
+        // Debounce dynamique (anti double-cross) basé sur la vitesse
+        let v = max(0, speedKmh ?? 0) // km/h (peut être nil)
+        let debounceSeconds: TimeInterval
+        if v < 20 {
+            debounceSeconds = 2.2
+        } else if v < 50 {
+            debounceSeconds = 1.6
+        } else if v < 90 {
+            debounceSeconds = 1.1
+        } else {
+            debounceSeconds = 0.8
+        }
+
         if let last = lastSectorCrossDates[currentSectorIndex],
-           timestamp.timeIntervalSince(last) < 1.5 {
+           timestamp.timeIntervalSince(last) < debounceSeconds {
             return
         }
 
@@ -430,7 +456,8 @@ final class SessionManager: ObservableObject {
                 currentLapSectorTimes = []
                 lastLapSectorTimes = []
                 sectorStates = Array(repeating: .neutral, count: max(1, min(sectorCount, 6)))
-                lastSectorCrossDates = Array(repeating: nil, count: max(0, min(sectorCount, 6)))
+                let lineCount = sectorLineCount(for: raceConfig?.track)
+                lastSectorCrossDates = Array(repeating: nil, count: lineCount)
 
                 currentLapTime = 0
                 currentLapSectorTimesUI = []
@@ -456,7 +483,8 @@ final class SessionManager: ObservableObject {
             sectorStartDate = date
             currentSectorIndex = 0
             currentLapSectorTimes = []
-            lastSectorCrossDates = Array(repeating: nil, count: max(0, min(sectorCount, 6)))
+            let lineCount = sectorLineCount(for: raceConfig?.track)
+            lastSectorCrossDates = Array(repeating: nil, count: lineCount)
             currentLapSectorTimesUI = []
             liveSectorIndex = 0
             liveSectorElapsed = 0
@@ -464,6 +492,54 @@ final class SessionManager: ObservableObject {
             return
         }
 
+        // Valider le dernier secteur (dernier split -> SF) au passage SF
+        if let track = raceConfig?.track {
+            let sectorLines = availableSectorLines(from: track)
+            let sectorsCount = max(1, sectorLines.count + 1)
+
+            // S'assure que bestSectorTimes est prêt
+            if bestSectorTimes.count != sectorsCount {
+                bestSectorTimes = Array(repeating: .infinity, count: sectorsCount)
+            }
+            if sectorStates.count != max(1, min(sectorsCount, 6)) {
+                sectorStates = Array(repeating: .neutral, count: max(1, min(sectorsCount, 6)))
+            }
+
+            // Si on n’a pas encore validé ce dernier secteur dans ce tour
+            if currentSectorIndex == sectorsCount - 1, let start = sectorStartDate {
+                let sectorTime = max(0, date.timeIntervalSince(start))
+
+                if currentLapSectorTimes.count == currentSectorIndex {
+                    currentLapSectorTimes.append(sectorTime)
+                } else if currentLapSectorTimes.count > currentSectorIndex {
+                    currentLapSectorTimes[currentSectorIndex] = sectorTime
+                } else {
+                    while currentLapSectorTimes.count < currentSectorIndex { currentLapSectorTimes.append(0) }
+                    currentLapSectorTimes.append(sectorTime)
+                }
+
+                let prevTime: TimeInterval? = (lastLapSectorTimes.count > currentSectorIndex) ? lastLapSectorTimes[currentSectorIndex] : nil
+                let bestTime: TimeInterval = bestSectorTimes[currentSectorIndex]
+
+                let state: SectorDeltaState
+                if sectorTime < bestTime {
+                    state = .best
+                    bestSectorTimes[currentSectorIndex] = sectorTime
+                } else if let prev = prevTime, sectorTime < prev {
+                    state = .faster
+                } else {
+                    state = .slower
+                }
+
+                if sectorStates.indices.contains(currentSectorIndex) {
+                    sectorStates[currentSectorIndex] = state
+                }
+
+                // UI sync (optionnel mais cohérent)
+                currentLapSectorTimesUI = currentLapSectorTimes
+            }
+        }
+        
         completeLap(lapTime: lapTime)
 
         // Capture référence pilotage si nouveau best
@@ -472,9 +548,11 @@ final class SessionManager: ObservableObject {
                 .filter { $0.s.isFinite && $0.t.isFinite && $0.s >= 0 && $0.t >= 0 }
                 .sorted { $0.s < $1.s }
 
-            if cleaned.count >= 10 {
+            // On accepte une référence dès qu'on a assez d'échantillons et une distance minimale
+            if cleaned.count >= 5, (cleaned.last?.s ?? 0) > 50 {
                 referenceLapSamples = cleaned
                 referenceLapTotalDistance = cleaned.last?.s ?? 0
+                isDeltaReady = referenceLapSamples.count >= 2
             }
         }
 
@@ -484,13 +562,32 @@ final class SessionManager: ObservableObject {
         currentLapDistance = 0
         currentLapSamples = []
 
-        // Reset secteur pour le tour suivant
+        // Reset secteur différé (laisser voir les rectangles ~3s)
         lastLapSectorTimes = currentLapSectorTimes
         currentLapSectorTimes = []
-        currentSectorIndex = 0
-        sectorStartDate = date
-        sectorStates = Array(repeating: .neutral, count: max(1, min(sectorCount, 6)))
-        lastSectorCrossDates = Array(repeating: nil, count: max(0, min(sectorCount, 6)))
+
+        pendingSectorResetWorkItem?.cancel()
+
+        let resetWork = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+
+            self.currentSectorIndex = 0
+            self.sectorStartDate = date
+            self.sectorStates = Array(
+                repeating: .neutral,
+                count: max(1, min(self.sectorCount, 6))
+            )
+            let lineCount = sectorLineCount(for: raceConfig?.track)
+            self.lastSectorCrossDates = Array(repeating: nil, count: lineCount)
+
+            self.currentLapSectorTimesUI = []
+            self.liveSectorIndex = 0
+            self.liveSectorElapsed = 0
+        }
+
+        pendingSectorResetWorkItem = resetWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: resetWork)
+
 
         // Nouveau tour
         sessionStartDate = date
@@ -513,6 +610,11 @@ final class SessionManager: ObservableObject {
             if trackLine(l) != nil { lines.append(l) }
         }
         return lines
+    }
+    
+    private func sectorLineCount(for track: TrackDefinition?) -> Int {
+        guard let track else { return 0 }
+        return availableSectorLines(from: track).count
     }
 
     // MARK: - Geometry
@@ -608,6 +710,7 @@ final class SessionManager: ObservableObject {
         lastLapTime = nil
         bestLapTime = nil
         deltaToBestLap = 0
+        isDeltaReady = false
         lapCount = 0
 
         lapFlash = nil
@@ -717,6 +820,7 @@ final class SessionManager: ObservableObject {
         lastGPSTimestamp = nil
 
         smoothedDeltaToBest = 0
+        isDeltaReady = false
 
         beginStint(for: selectedDriverName)
 
@@ -797,6 +901,8 @@ final class SessionManager: ObservableObject {
     }
 
     @Published var sectorStates: [SectorDeltaState] = Array(repeating: .neutral, count: 3)
+    
+    private var pendingSectorResetWorkItem: DispatchWorkItem?
 
     private func normalizeSectorStates() {
         let clamped = max(1, min(sectorCount, 6))

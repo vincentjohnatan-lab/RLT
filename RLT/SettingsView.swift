@@ -16,7 +16,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Section("LiveView") {
+                Section("Choose the right Overlay") {
                     Picker("Tuile droite (ligne 2)", selection: $sessionManager.rightMiddleTileMode) {
                         ForEach(SessionManager.RightMiddleTileMode.allCases) { mode in
                             Text(mode.title).tag(mode)

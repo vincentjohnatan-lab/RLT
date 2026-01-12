@@ -37,7 +37,7 @@ struct LoginView: View {
 
                     // Champs
                     VStack(spacing: 12) {
-                        TextField("Email", text: $email)
+                        TextField("", text: $email, prompt: Text("Email").foregroundStyle(.black.opacity(0.45)))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.emailAddress)
@@ -47,7 +47,7 @@ struct LoginView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .foregroundStyle(.black)
 
-                        SecureField("Password", text: $password)
+                        SecureField("", text: $password, prompt: Text("Password").foregroundStyle(.black.opacity(0.45)))
                             .padding(.horizontal, 14)
                             .frame(height: 48)
                             .background(Color.white)
@@ -102,7 +102,7 @@ struct LoginView: View {
                     } label: {
                         Text("Create an account")
                             .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.9))
+                            .foregroundStyle(.white)
                             .underline()
                             .padding(.top, 10)
                     }

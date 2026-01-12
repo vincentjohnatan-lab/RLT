@@ -23,7 +23,7 @@ struct SignUpView: View {
                 Color.black.ignoresSafeArea()
 
                 VStack(spacing: 12) {
-                    TextField("Nickname", text: $nickname)
+                    TextField("", text: $nickname, prompt: Text("Nickname").foregroundStyle(.black.opacity(0.45)))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.emailAddress)
@@ -33,7 +33,7 @@ struct SignUpView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .foregroundStyle(.black)
                     
-                    TextField("Email", text: $email)
+                    TextField("", text: $email, prompt: Text("Email").foregroundStyle(.black.opacity(0.45)))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.emailAddress)
@@ -43,14 +43,14 @@ struct SignUpView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .foregroundStyle(.black)
 
-                    SecureField("Password", text: $password)
+                    SecureField("", text: $password, prompt: Text("Password").foregroundStyle(.black.opacity(0.45)))
                         .padding(.horizontal, 14)
                         .frame(height: 48)
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .foregroundStyle(.black)
 
-                    SecureField("Confirm Password", text: $confirmPassword)
+                    SecureField("", text: $confirmPassword, prompt: Text("Confirm Password").foregroundStyle(.black.opacity(0.45)))
                         .padding(.horizontal, 14)
                         .frame(height: 48)
                         .background(Color.white)
@@ -89,13 +89,21 @@ struct SignUpView: View {
                 .padding(24)
             }
             .navigationTitle("Create an account")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Create an account")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
                         .foregroundStyle(.white)
                 }
             }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
         }
     }
 }

@@ -109,7 +109,11 @@ struct TrackEditorView: View {
                     }
                 }
 
-                Text("Tap on the map to set \(target.rawValue) – \(slot.rawValue).")
+                Button(role: .destructive) {
+                    clearSelectedPoint()
+                } label: {
+                    Label("Clear \(target.rawValue) – \(slot.rawValue)", systemImage: "trash")
+                }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -222,6 +226,32 @@ struct TrackEditorView: View {
             setPoint(on: &draft.sector3, coord: coord)
         }
     }
+    
+    private func clearSelectedPoint() {
+        completer.clear()
+        switch target {
+        case .startFinish:
+            clearPoint(on: &draft.startFinish)
+        case .sector1:
+            clearPoint(on: &draft.sector1)
+        case .sector2:
+            clearPoint(on: &draft.sector2)
+        case .sector3:
+            clearPoint(on: &draft.sector3)
+        }
+    }
+
+    private func clearPoint(on line: inout TrackLine) {
+        switch slot {
+        case .a:
+            line.aLat = nil
+            line.aLon = nil
+        case .b:
+            line.bLat = nil
+            line.bLon = nil
+        }
+    }
+
 
     private func setPoint(on line: inout TrackLine, coord: CLLocationCoordinate2D) {
         switch slot {

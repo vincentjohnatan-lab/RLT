@@ -66,7 +66,6 @@ enum AppRoute: String, CaseIterable, Identifiable {
     case stats = "Stats"
     case spotter = "Spotter"
     case weather = "Weather"
-    case settings = "Settings"
 
     var id: String { rawValue }
 }
@@ -77,6 +76,7 @@ struct RootShellView: View {
     @EnvironmentObject var session: SessionManager
     @State private var route: AppRoute = .home
     @State private var isMenuPresented: Bool = false
+    @State private var isLiveSettingsPresented: Bool = false
     @State private var isHomeRaceSetupPresented: Bool = false
     
     var body: some View {
@@ -98,7 +98,7 @@ struct RootShellView: View {
                         LiveView(
                             onHomeTap: { route = .home },
                             onWeatherTap: { route = .weather },
-                            onSettingsTap: { route = .settings }
+                            onSettingsTap: { isLiveSettingsPresented = true }
                         )
 
                     case .weather:
@@ -109,11 +109,6 @@ struct RootShellView: View {
 
                     case .spotter:
                         SpotterView()
-
-                    case .settings:
-                        SettingsView(onClose: {
-                            route = .live
-                        })
                     }
                 }
                 .sheet(isPresented: $isHomeRaceSetupPresented) {
@@ -128,6 +123,9 @@ struct RootShellView: View {
                     .presentationDetents([.fraction(0.98), .large])
                     .presentationDragIndicator(.visible)
                     .presentationContentInteraction(.scrolls)
+                }
+                .sheet(isPresented: $isLiveSettingsPresented) {
+                    SettingsView(onClose: { isLiveSettingsPresented = false })
                 }
                 .sheet(isPresented: $isMenuPresented) {
                     MenuSheetView(route: $route, isPresented: $isMenuPresented)
