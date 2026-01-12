@@ -128,10 +128,10 @@ struct LiveView: View {
 
         var body: some View {
             NavigationStack {
-                ZStack(alignment: .bottom) {
+                ZStack {
 
                     GeometryReader { geo in
-                        let midW = middleColumnWidth(for: sessionManager.sectorStates.count)
+                        let midW = middleColumnWidth(for: 3)
                         let sideW = max(0, (geo.size.width - midW) / 2)
                         let contentHeight = max(0, geo.size.height - controlsBarHeight)
 
@@ -309,14 +309,16 @@ struct LiveView: View {
                                 VStack(alignment: .trailing, spacing: 2) {
 
                                     HStack(spacing: 0) {
-                                        Text("REM. TIME")
+                                        Text("TOT. TIME")
                                             .frame(width: 82, alignment: .leading)
 
                                         Text(":")
                                             .frame(width: 14, alignment: .center)
 
-                                        Text("1:58")
-                                            .frame(width: 50, alignment: .leading)
+                                        TimelineView(.periodic(from: .now, by: 1.0)) { _ in
+                                            Text(formatStintTime(sessionManager.teamTotalStintTime))
+                                                .frame(width: 50, alignment: .leading)
+                                        }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -327,7 +329,7 @@ struct LiveView: View {
                                         Text(":")
                                             .frame(width: 14, alignment: .center)
 
-                                        Text("88")
+                                        Text("\(sessionManager.lapCount)")
                                             .frame(width: 50, alignment: .leading)
                                     }
                                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -339,52 +341,43 @@ struct LiveView: View {
                                 .frame(height: smallRowHeight)
                                 .padding(.horizontal, 12)
 
-                                // Row 2 - position
+                                // Row 2 - right middle tile (mode)
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Text("Position")
-                                        .font(.headline)
-                                        .foregroundStyle(.secondary)
-                                        .frame(maxWidth: .infinity, alignment: .center)
 
-                                    // Devant
-                                    HStack(spacing: 10) {
-                                        Text("↑")
-                                            .font(.system(size: 18, weight: .bold))
+                                    switch sessionManager.rightMiddleTileMode {
 
-                                        Text("#12")
-                                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                    case .liveTiming:
+                                        Text("Live Timing")
+                                            .font(.headline)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .center)
 
                                         Spacer(minLength: 0)
 
-                                        Text("+0.842")
-                                            .font(.system(size: 25, weight: .semibold, design: .monospaced))
+                                        Text("Coming soon")
+                                            .font(.system(size: 22, weight: .semibold, design: .monospaced))
                                             .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer(minLength: 0)
-
-                                    // Notre position (au milieu)
-                                    Text("6/43")
-                                        .font(.system(size: 64, weight: .semibold, design: .monospaced))
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.6)
-
-                                    Spacer(minLength: 0)
-
-                                    // Derrière
-                                    HStack(spacing: 10) {
-                                        Text("↓")
-                                            .font(.system(size: 18, weight: .bold))
-
-                                        Text("#7")
-                                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                            .frame(maxWidth: .infinity, alignment: .center)
 
                                         Spacer(minLength: 0)
 
-                                        Text("-0.315")
-                                            .font(.system(size: 25, weight: .semibold, design: .monospaced))
+                                    case .sectorTimes:
+                                        Text("Sector times")
+                                            .font(.headline)
                                             .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .center)
+
+                                        VStack(spacing: 6) {
+                                            sectorLine(title: "S1", index: 0)
+                                            sectorLine(title: "S2", index: 1)
+                                            sectorLine(title: "S3", index: 2)
+                                            
+                                            optimalLapLine()
+
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        Spacer(minLength: 0)
                                     }
                                 }
                                 .padding(12)
@@ -464,51 +457,42 @@ struct LiveView: View {
                         }
                         .zIndex(20)
                     }
-
+                }
+            }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
                     // Controls bar (4 buttons - evenly distributed)
                     HStack(spacing: 0) {
 
-                        Button {
-                            onHomeTap()
-                        } label: {
+                        Button { onHomeTap() } label: {
                             Image(systemName: "house.fill")
                                 .font(.title3)
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .accessibilityLabel("Home")
 
-                        Button {
-                            isEndRaceAlertPresented = true
-                        } label: {
+                        Button { isEndRaceAlertPresented = true } label: {
                             Image(systemName: "flag.checkered")
                                 .font(.title3)
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .accessibilityLabel("End Race")
 
-                        Button {
-                            onSettingsTap()
-                        } label: {
-                            Image(systemName: weatherSymbolName)
+                        Button { onSettingsTap() } label: {
+                            Image(systemName: "gearshape.fill")
                                 .font(.title3)
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .accessibilityLabel("Settings")
 
-                        Button {
-                            isGPSSheetPresented = true
-                        } label: {
+                        Button { isGPSSheetPresented = true } label: {
                             SignalBarsIcon(filledBars: gpsFilledBars)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .font(.title3)
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .accessibilityLabel("GPS")
-
                     }
-
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 1)
+                    .padding(.vertical, 6)
+                    .frame(height: 44)                 // hauteur “fine” explicite
                     .foregroundStyle(.secondary)
                     .background(.ultraThinMaterial)
                     .background(
@@ -520,9 +504,8 @@ struct LiveView: View {
                                 }
                         }
                     )
-
                 }
-            }
+
 #if DEBUG && targetEnvironment(simulator)
     .onAppear {
         // Évite de recréer un timer si la vue réapparaît
@@ -661,4 +644,55 @@ struct LiveView: View {
                 .opacity(filled ? 1.0 : 0.25)
         }
     }
+
+private extension LiveView {
+
+    @ViewBuilder
+    func optimalLapLine() -> some View {
+        HStack {
+            Text("OPTI")
+                .font(.system(size: 16, weight: .regular, design: .monospaced))
+                .frame(width: 44, alignment: .leading)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+
+            if let t = sessionManager.optimalLapTime {
+                Text(formatShortSectorTime(t))
+                    .font(.system(size: 20, weight: .regular, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("--.---")
+                    .font(.system(size: 20, weight: .regular, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    func sectorLine(title: String, index: Int) -> some View {
+        let completed: TimeInterval? = sessionManager.currentLapSectorTimesUI.indices.contains(index)
+            ? sessionManager.currentLapSectorTimesUI[index]
+            : nil
+
+        let isActive = (sessionManager.liveSectorIndex == index)
+        let displayed: TimeInterval? = completed ?? (isActive ? sessionManager.liveSectorElapsed : nil)
+
+        HStack {
+            Text(title)
+                .font(.system(size: 18, weight: .bold, design: .monospaced))
+                .frame(width: 28, alignment: .leading)
+
+            Spacer(minLength: 0)
+
+            Text(displayed.map(formatShortSectorTime) ?? "--.---")
+                .font(.system(size: 22, weight: .regular, design: .monospaced))
+                .foregroundStyle(isActive ? .primary : .secondary)
+        }
+    }
+
+    func formatShortSectorTime(_ t: TimeInterval) -> String {
+        String(format: "%.3f", max(0, t))
+    }
+}
 

@@ -85,8 +85,15 @@ struct RootShellView: View {
                 Group {
                     switch route {
                     case .home:
-                        HomeView(onLiveTap: { isHomeRaceSetupPresented = true })
-
+                        HomeView(onLiveTap: {
+                            // Si une course existe déjà (armée ou en cours), on reprend le Live directement
+                            if session.raceConfig != nil {
+                                route = .live
+                            } else {
+                                // Sinon, on passe par le setup (comportement actuel)
+                                isHomeRaceSetupPresented = true
+                            }
+                        })
                     case .live:
                         LiveView(
                             onHomeTap: { route = .home },

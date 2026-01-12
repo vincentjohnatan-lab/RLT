@@ -59,6 +59,10 @@ struct RaceSetupView: View {
             Form {
                 Section("Race") {
                     Picker("Track", selection: $selectedTrackID) {
+
+                        // ✅ Tag explicite pour la valeur nil (supprime le warning)
+                        Text("Select a track").tag(UUID?.none)
+
                         ForEach(availableTracks) { track in
                             Text(track.name).tag(Optional(track.id))
                         }
@@ -69,7 +73,11 @@ struct RaceSetupView: View {
                             selectedTrackID = availableTracks.first?.id
                         }
                     }
-
+                    .onChange(of: availableTracks.count) { _, _ in
+                        if selectedTrackID == nil {
+                            selectedTrackID = availableTracks.first?.id
+                        }
+                    }
 
                     Stepper(value: $minimumPitSeconds, in: 0...600, step: 10) {
                         HStack {

@@ -40,6 +40,21 @@ final class SessionManager: ObservableObject {
         }
     }
 
+    // MARK: - LiveView right-middle tile mode
+    enum RightMiddleTileMode: String, CaseIterable, Identifiable {
+        case liveTiming
+        case sectorTimes
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .liveTiming:  return "Live Timing"
+            case .sectorTimes: return "Sector Times"
+            }
+        }
+    }
+
     // MARK: - Auth (persisted)
     @AppStorage("isLoggedIn") private var storedIsLoggedIn: Bool = false
     @Published var isLoggedIn: Bool = false
@@ -48,6 +63,7 @@ final class SessionManager: ObservableObject {
 
     init() {
         self.isLoggedIn = storedIsLoggedIn
+        self.rightMiddleTileMode = RightMiddleTileMode(rawValue: storedRightMiddleTileMode) ?? .sectorTimes
         self.userNickname = storedUserNickname
 
         if self.isLoggedIn {
@@ -65,10 +81,23 @@ final class SessionManager: ObservableObject {
     @Published var bestLapTime: TimeInterval?
     @Published var deltaToBestLap: TimeInterval = 0
     private var lapTicker: AnyCancellable?
+    
+    // MARK: - Sector live timing (UI)
+    @Published var liveSectorIndex: Int = 0                 // 0=S1, 1=S2, 2=S3...
+    @Published var liveSectorElapsed: TimeInterval = 0      // chrono du secteur en cours
+    @Published var currentLapSectorTimesUI: [TimeInterval] = [] // temps validés sur le tour en cours
 
     // MARK: - Drivers
     @Published var drivers: [String] = ["Driver 1", "Driver 2"]
     @Published var selectedDriverName: String = "Driver 1"
+    
+    //MARK:Sectors in layout
+    @AppStorage("right_middle_tile_mode")
+    private var storedRightMiddleTileMode: String = RightMiddleTileMode.sectorTimes.rawValue
+
+    @Published var rightMiddleTileMode: RightMiddleTileMode = .sectorTimes {
+        didSet { storedRightMiddleTileMode = rightMiddleTileMode.rawValue }
+    }
 
     func selectDriver(_ name: String) {
         guard name != selectedDriverName else { return }
@@ -186,6 +215,23 @@ final class SessionManager: ObservableObject {
         guard isSessionRunning, let start = currentStintStartDate else { return 0 }
         return Date().timeIntervalSince(start)
     }
+   
+    /// Temps total équipe = somme des stints terminés + stint en cours (si session active)
+    var teamTotalStintTime: TimeInterval {
+        let done = completedStints.reduce(0) { $0 + $1.duration }
+        let current = (isSessionRunning ? currentStintElapsed : 0)
+        return done + current
+    }
+
+    /// Optimal lap = somme des meilleurs secteurs (pilote)
+    var optimalLapTime: TimeInterval? {
+        guard !bestSectorTimes.isEmpty else { return nil }
+
+        let valid = bestSectorTimes.filter { $0.isFinite && $0 > 0 }
+        guard valid.count == bestSectorTimes.count else { return nil }
+
+        return valid.reduce(0, +)
+    }
 
     private func beginStint(for driver: String, at date: Date = Date()) {
         currentStintDriverName = driver
@@ -243,6 +289,7 @@ final class SessionManager: ObservableObject {
     }
 
     // MARK: - GPS ingest
+    
     func ingestGPS(lat: Double, lon: Double, speedKmh: Double?, timestamp: Date) {
         defer {
             lastGPSLat = lat
@@ -300,6 +347,15 @@ final class SessionManager: ObservableObject {
         if sectorStartDate == nil {
             sectorStartDate = timestamp
         }
+        
+        // UI: chrono du secteur en cours + secteurs déjà validés
+        liveSectorIndex = currentSectorIndex
+        if let start = sectorStartDate {
+            liveSectorElapsed = max(0, timestamp.timeIntervalSince(start))
+        } else {
+            liveSectorElapsed = 0
+        }
+        currentLapSectorTimesUI = currentLapSectorTimes
 
         if lastSectorCrossDates.count != sectorLines.count {
             lastSectorCrossDates = Array(repeating: nil, count: sectorLines.count)
@@ -355,6 +411,10 @@ final class SessionManager: ObservableObject {
 
             currentSectorIndex += 1
             sectorStartDate = timestamp
+            // UI: on vient de valider un secteur, le prochain démarre maintenant
+            currentLapSectorTimesUI = currentLapSectorTimes
+            liveSectorIndex = currentSectorIndex
+            liveSectorElapsed = 0
         }
     }
 
@@ -373,6 +433,10 @@ final class SessionManager: ObservableObject {
                 lastSectorCrossDates = Array(repeating: nil, count: max(0, min(sectorCount, 6)))
 
                 currentLapTime = 0
+                currentLapSectorTimesUI = []
+                liveSectorIndex = 0
+                liveSectorElapsed = 0
+
                 return
             }
         guard let start = sessionStartDate else {
@@ -393,7 +457,9 @@ final class SessionManager: ObservableObject {
             currentSectorIndex = 0
             currentLapSectorTimes = []
             lastSectorCrossDates = Array(repeating: nil, count: max(0, min(sectorCount, 6)))
-
+            currentLapSectorTimesUI = []
+            liveSectorIndex = 0
+            liveSectorElapsed = 0
             currentLapTime = 0
             return
         }
@@ -565,6 +631,9 @@ final class SessionManager: ObservableObject {
         lastLapSectorTimes = []
         bestSectorTimes = []
         lastSectorCrossDates = []
+        currentLapSectorTimesUI = []
+        liveSectorIndex = 0
+        liveSectorElapsed = 0
 
         // GPS
         lastGPSLat = nil

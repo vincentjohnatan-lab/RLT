@@ -70,6 +70,14 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
     }
+    
+    // MARK: - Auto-reconnect
+    @Published var autoReconnectEnabled: Bool = true
+
+    private var manuallyStopped: Bool = false
+    private var reconnectAttempt: Int = 0
+    private var reconnectWorkItem: DispatchWorkItem? = nil
+    private var connectedName: String? = nil
 
     // MARK: - Public API
 
@@ -78,6 +86,10 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
             state = (central.state == .poweredOff) ? .bluetoothOff : .failed("Bluetooth indisponible")
             return
         }
+        manuallyStopped = false
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        reconnectAttempt = 0
 
         resetTelemetry()
         bytesRxTotal = 0
@@ -98,21 +110,41 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
                 self.central.stopScan()
                 self.state = .failed("RaceBox introuvable (scan timeout)")
                 debugPrint("⏱️ RaceBox scan timeout")
+
+                if !self.manuallyStopped {
+                    self.scheduleReconnect(reason: "scan timeout")
+                }
             }
         }
     }
 
     func stop() {
+        // Empêche toute reconnexion automatique
+        manuallyStopped = true
+        reconnectAttempt = 0
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        connectedName = nil
+
+        central.stopScan()
+
         if let p = peripheral {
             central.cancelPeripheralConnection(p)
         }
+
         peripheral = nil
         nusTx = nil
         nusRx = nil
+        batteryLevelChar = nil
         rxBuffer.removeAll(keepingCapacity: false)
+
+        resetTelemetry()
         state = .idle
-        debugPrint("🛑 RaceBox stop")
+        debugPrint("🛑 RaceBox stop (manual)")
     }
+
+
+
 
     // MARK: - Helpers
 
@@ -122,11 +154,34 @@ final class RaceBoxGPSManager: NSObject, ObservableObject {
         hdop = nil
         fixQuality = nil
         lastUpdate = nil
+
         latitude = nil
         longitude = nil
+
+        headingDeg = nil
+        altitudeM = nil
+
         batteryPercent = nil
         isCharging = nil
+    }
 
+    private func scheduleReconnect(reason: String) {
+        guard autoReconnectEnabled, !manuallyStopped else { return }
+        guard central.state == .poweredOn else { return }
+
+        reconnectWorkItem?.cancel()
+
+        // backoff: 2s, 4s, 6s, 8s, 10s, 12s (max)
+        reconnectAttempt += 1
+        let delay = min(2.0 * Double(reconnectAttempt), 12.0)
+
+        debugPrint("🔁 Reconnect scheduled in \(delay)s — reason:", reason)
+
+        let item = DispatchWorkItem { [weak self] in
+            self?.start()
+        }
+        reconnectWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
     // MARK: - Incoming bytes -> packets -> decode
@@ -348,7 +403,8 @@ extension RaceBoxGPSManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         let name = peripheral.name ?? "RaceBox"
-        state = .connected(name: name)
+        connectedName = name
+        state = .connecting
         debugPrint("🔗 Connected to:", name)
         peripheral.discoverServices(nil)
     }
@@ -358,6 +414,7 @@ extension RaceBoxGPSManager: CBCentralManagerDelegate {
                         error: Error?) {
         state = .failed(error?.localizedDescription ?? "Connexion échouée")
         debugPrint("❌ Fail to connect:", error?.localizedDescription ?? "unknown")
+        scheduleReconnect(reason: "fail to connect")
     }
 
     func centralManager(_ central: CBCentralManager,
@@ -367,8 +424,18 @@ extension RaceBoxGPSManager: CBCentralManagerDelegate {
         nusRx = nil
         self.peripheral = nil
         batteryLevelChar = nil
+        connectedName = nil
+
+        if manuallyStopped {
+            state = .idle
+            debugPrint("🔌 Disconnected (manual stop)")
+            return
+        }
+
         state = .failed(error?.localizedDescription ?? "Déconnecté")
         debugPrint("🔌 Disconnected:", error?.localizedDescription ?? "no error")
+
+        scheduleReconnect(reason: "didDisconnectPeripheral")
     }
 }
 
@@ -424,6 +491,10 @@ extension RaceBoxGPSManager: CBPeripheralDelegate {
             if let rx = chars.first(where: { $0.uuid == nusRxUUID }) {
                 nusRx = rx
                 debugPrint("✅ NUS RX disponible")
+            }
+            
+            if nusTx != nil && nusRx != nil {
+                state = .connected(name: connectedName ?? "RaceBox")
             }
 
             return

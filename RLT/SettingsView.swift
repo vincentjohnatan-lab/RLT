@@ -16,7 +16,14 @@ struct SettingsView: View {
                         }
                     }
                 }
-
+                Section("LiveView") {
+                    Picker("Tuile droite (ligne 2)", selection: $sessionManager.rightMiddleTileMode) {
+                        ForEach(SessionManager.RightMiddleTileMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
                 Section("Settings (Home)") {
                     Text("Cette page sera utilisée plus tard pour les réglages généraux (Home).")
                         .foregroundStyle(.secondary)
