@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeView: View {
     let onLiveTap: () -> Void
+    let onDemoTap: () -> Void
     @EnvironmentObject var session: SessionManager
     @State private var isAccountSheetPresented = false
     @State private var isSettingsSheetPresented = false
@@ -13,6 +14,26 @@ struct HomeView: View {
             GeometryReader { geo in
                 ZStack {
                     Color.black.ignoresSafeArea()
+                    VStack {
+                        HStack {
+                            Spacer()
+
+                            Button(action: onDemoTap) {
+                                Text("DEMO")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.black)
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 14)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 14)
+                            .padding(.trailing, 14)
+                        }
+
+                        Spacer()
+                    }
 
                     VStack(spacing: 24) {
 
@@ -46,7 +67,6 @@ struct HomeView: View {
                                 isAccountSheetPresented = true
                             }
                         }
-
                         Spacer(minLength: 20)
                     }
                     .padding(24)
@@ -207,10 +227,4 @@ struct GPSView: View {
         case .bluetoothOff: return "Bluetooth OFF"
         }
     }
-}
-
-
-#Preview(traits: .portrait) {
-    HomeView(onLiveTap: {})
-        .environmentObject(SessionManager())
 }

@@ -74,6 +74,13 @@ final class SessionManager: ObservableObject {
     // MARK: - Session state
     @Published var isSessionRunning: Bool = false
     @Published var sessionStartDate: Date?
+    
+    // MARK: - Demo mode
+    @Published var isDemoMode: Bool = false
+    @Published var demoSpeedKmh: Double = 0
+    private var demoTicker: AnyCancellable?
+    private var demoTargetLap: TimeInterval = 45.0
+    private var demoStartTime: Date?
 
     // MARK: - Live data
     @Published var currentLapTime: TimeInterval = 0
@@ -888,6 +895,99 @@ final class SessionManager: ObservableObject {
         lapFlash = LapFlash(lapTime: lapTime, state: state)
     }
 
+    // MARK: - Demo Mode Control
+    func startDemoMode() {
+        // Evite de relancer si déjà actif
+        if isDemoMode { return }
+
+        isDemoMode = true
+
+        // Remise à zéro propre (sans toucher au layout)
+        resetRaceData()
+        isRaceStartArmed = false
+        raceConfig = nil
+
+        // Démarre une session "comme si" le Start/Finish avait déjà été passé
+        startSession()
+        awaitingFirstStartFinishCross = false
+        sessionStartDate = Date()
+        demoStartTime = Date()
+
+        // Initialisation UI
+        sectorCount = 3
+        sectorStates = [.neutral, .neutral, .neutral]
+        isDeltaReady = true
+        deltaToBestLap = 0
+
+        // Lap cible (tu peux ajuster)
+        demoTargetLap = 5.0
+        demoSpeedKmh = 72      // valeur de départ lisible
+
+        // Timer qui simule delta + secteurs + laps
+        demoTicker?.cancel()
+        demoTicker = Timer.publish(every: 0.2, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard self.isDemoMode, self.isSessionRunning else { return }
+                
+                // 0) Delta (oscillation réaliste)
+                let t = Date().timeIntervalSince(self.demoStartTime ?? Date())
+                self.deltaToBestLap = 1.8 * sin(t / 2.0)   // +/- ~1.8s
+                
+                // 1) Vitesse (simulation réaliste + stable)
+                let base = 78.0 + 18.0 * sin(t / 1.7)          // oscillation
+                let noise = Double.random(in: -2.0...2.0)      // petites variations
+                self.demoSpeedKmh = max(0, base + noise)
+
+                // 2) Secteurs (cycle: faster / slower / best)
+                let phase = Int(t) % 6
+                switch phase {
+                case 0: self.sectorStates = [.faster, .neutral, .neutral]
+                case 1: self.sectorStates = [.best, .neutral, .neutral]
+                case 2: self.sectorStates = [.best, .faster, .neutral]
+                case 3: self.sectorStates = [.best, .best, .neutral]
+                case 4: self.sectorStates = [.best, .best, .faster]
+                default: self.sectorStates = [.best, .best, .best]
+                }
+
+                // 3) Fin de tour simulée
+                if let lapStart = self.sessionStartDate {
+                    let lapElapsed = Date().timeIntervalSince(lapStart)
+                    if lapElapsed >= self.demoTargetLap {
+                        // Lap time simulé autour de demoTargetLap
+                        let lapTime = self.demoTargetLap + Double.random(in: -0.6...0.8)
+                        self.completeLap(lapTime: max(20, lapTime))
+
+                        // Nouveau tour
+                        self.sessionStartDate = Date()
+
+                        // On varie légèrement la cible
+                        self.demoTargetLap = max(30, self.demoTargetLap + Double.random(in: -0.7...0.7))
+
+                        // Reset secteurs pour le nouveau tour
+                        self.sectorStates = [.neutral, .neutral, .neutral]
+                    }
+                }
+            }
+    }
+
+    func stopDemoMode() {
+        guard isDemoMode else { return }
+        isDemoMode = false
+
+        demoTicker?.cancel()
+        demoTicker = nil
+        demoStartTime = nil
+
+        // Stop session et reset minimal (tu peux choisir de conserver des stats si tu veux)
+        stopSession()
+        resetRaceData()
+        isRaceStartArmed = false
+        raceConfig = nil
+        demoSpeedKmh = 0
+    }
+    
     // MARK: - Sectors UI (layout)
     enum SectorDeltaState: String, CaseIterable {
         case neutral

@@ -30,6 +30,7 @@ struct RLTApp: App {
     @AppStorage("appearance_preference") private var appearanceRawValue = AppearancePreference.system.rawValue
     @StateObject private var raceBoxGPS = RaceBoxGPSManager()
     @StateObject private var trackStore = TrackStore()
+    @StateObject private var purchaseManager = PurchaseManager()
 
     var body: some Scene {
         WindowGroup {
@@ -37,6 +38,7 @@ struct RLTApp: App {
                 .environmentObject(session)
                 .environmentObject(raceBoxGPS)
                 .environmentObject(trackStore)
+                .environmentObject(purchaseManager)
                 .preferredColorScheme(
                     AppearancePreference(rawValue: appearanceRawValue)?.colorScheme
                 )
@@ -85,22 +87,28 @@ struct RootShellView: View {
                 Group {
                     switch route {
                     case .home:
-                        HomeView(onLiveTap: {
-                            // Si une course existe déjà (armée ou en cours), on reprend le Live directement
-                            if session.raceConfig != nil {
+                        HomeView(
+                            onLiveTap: {
+                                if session.raceConfig != nil {
+                                    route = .live
+                                } else {
+                                    isHomeRaceSetupPresented = true
+                                }
+                            },
+                            onDemoTap: {
+                                session.startDemoMode()
                                 route = .live
-                            } else {
-                                // Sinon, on passe par le setup (comportement actuel)
-                                isHomeRaceSetupPresented = true
                             }
-                        })
+                        )
                     case .live:
                         LiveView(
-                            onHomeTap: { route = .home },
+                            onHomeTap: {
+                                if session.isDemoMode { session.stopDemoMode() }
+                                route = .home
+                            },
                             onWeatherTap: { route = .weather },
                             onSettingsTap: { isLiveSettingsPresented = true }
                         )
-
                     case .weather:
                         WeatherView()
 
